@@ -3,12 +3,29 @@
 VERSION="0.1.0"
 PROGRAM_NAME="keg"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
+# Check for root/sudo access
+if [[ $EUID -ne 0 ]]; then
+    exec sudo "$0" "$@"
+fi
+
+# Get the real user's home directory (not root's)
+if [[ -n "$SUDO_USER" ]]; then
+    REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+else
+    REAL_HOME="$HOME"
+fi
+
+# Colors for output (bright variants)
+RED='\033[0;91m'
+GREEN='\033[0;92m'
+YELLOW='\033[0;93m'
+BLUE='\033[0;94m'
 NC='\033[0m' # No Color
+
+DATA="$REAL_HOME/.keg/data"
+BIN="$REAL_HOME/.keg/bin"
+LIB="/usr/local/lib/"
+INSTALLED="$REAL_HOME/.keg/installed"
 
 # Print colored messages
 print_error() {
@@ -29,19 +46,40 @@ print_warning() {
 
 # Help command
 cmd_help() {
-    echo "Usage: $PROGRAM_NAME <command> [options] [packages...]"
+    echo -e "${YELLOW}"
+    cat << 'EOF'
+                 .~.
+                /   \
+               |     |
+               |     |
+               |     |
+              /|=====|\
+             / |     | \
+            /  | KEG |  \
+           |   |=====|   |
+           |   |     |   |
+           |   | ~~~ |   |
+           |   | ~~~ |   |
+           |   |     |   |
+            \  |=====|  /
+             \_|_____|_/
+EOF
+    echo -e "${NC}"
+    echo -e "                ${GREEN}keg v${VERSION}${NC}"
+    echo -e "          ${BLUE}A simple package manager${NC}"
     echo ""
-    echo "Commands:"
-    echo "  install <file.keg...>  Install one or more .keg packages"
-    echo "  get <package...>       Download packages without installing"
-    echo "  help                   Show this help message"
+    echo -e "${YELLOW}Usage:${NC} $PROGRAM_NAME <command> [options] [packages...]"
     echo ""
-    echo "Examples:"
-    echo "  $PROGRAM_NAME install myapp.keg"
-    echo "  $PROGRAM_NAME get curl wget"
-    echo "  $PROGRAM_NAME help"
+    echo -e "${YELLOW}Commands:${NC}"
+    echo -e "  ${GREEN}install${NC} <file.keg...>  Install one or more .keg packages"
+    echo -e "  ${GREEN}remove${NC} <package...>    Remove installed packages"
+    echo -e "  ${GREEN}get${NC} <url...>           Download and install from URL"
+    echo -e "  ${GREEN}help${NC}                   Show this help message"
     echo ""
-    echo "Version: $VERSION"
+    echo -e "${YELLOW}Examples:${NC}"
+    echo -e "  $PROGRAM_NAME install myapp.keg"
+    echo -e "  $PROGRAM_NAME get https://example.com/app.keg"
+    echo ""
 }
 
 # Install command
@@ -76,11 +114,68 @@ cmd_install() {
             continue
         fi
 
-        # TODO: Move extracted files to their destinations
-        # Binaries go to: PLACEHOLDER_BIN_DIR
-        # Libraries go to: PLACEHOLDER_LIB_DIR
-        # Config files go to: PLACEHOLDER_CONFIG_DIR
-        # Data files go to: PLACEHOLDER_DATA_DIR
+        # Find the package root (handles top-level folder from zip)
+        local pkg_root="$temp_dir"
+        if [[ -f "$temp_dir/keg-name.txt" ]]; then
+            pkg_root="$temp_dir"
+        else
+            # Look for keg-name.txt in a subdirectory
+            local found_root=$(find "$temp_dir" -name "keg-name.txt" -printf '%h\n' | head -1)
+            if [[ -n "$found_root" ]]; then
+                pkg_root="$found_root"
+            fi
+        fi
+
+        # Get package name
+        local pkg_name
+        if [[ -f "$pkg_root/keg-name.txt" ]]; then
+            pkg_name=$(cat "$pkg_root/keg-name.txt")
+        else
+            pkg_name=$(basename "$kegfile" .keg)
+        fi
+
+        # Prepare to track installed files
+        local bin_name=$(echo "$pkg_name" | tr '[:upper:]' '[:lower:]')
+
+        # Ensure directories exist (remove file if it conflicts)
+        for dir in "$INSTALLED" "$DATA" "$BIN"; do
+            if [[ -f "$dir" ]]; then
+                rm -f "$dir"
+            fi
+            mkdir -p "$dir"
+        done
+
+        local manifest="$INSTALLED/$bin_name.txt"
+        > "$manifest"  # Clear/create manifest
+
+        # Move data files to $DATA
+        if [[ -d "$pkg_root/data" ]]; then
+            for file in "$pkg_root/data/"*; do
+                if [[ -e "$file" ]]; then
+                    local basename=$(basename "$file")
+                    cp -r "$file" "$DATA/"
+                    echo "$DATA/$basename" >> "$manifest"
+                fi
+            done
+        fi
+
+        # Move library files to $LIB
+        if [[ -d "$pkg_root/lib" ]]; then
+            for file in "$pkg_root/lib/"*; do
+                if [[ -e "$file" ]]; then
+                    local basename=$(basename "$file")
+                    cp -r "$file" "$LIB/"
+                    echo "$LIB/$basename" >> "$manifest"
+                fi
+            done
+        fi
+
+        # Move binary to $BIN (lowercase name)
+        if [[ -f "$pkg_root/$pkg_name" ]]; then
+            cp "$pkg_root/$pkg_name" "$BIN/$bin_name"
+            chmod +x "$BIN/$bin_name"
+            echo "$BIN/$bin_name" >> "$manifest"
+        fi
 
         # Cleanup temp directory
         rm -rf "$temp_dir"
@@ -89,20 +184,57 @@ cmd_install() {
     done
 }
 
-# Get command (download only)
-cmd_get() {
+# Remove command
+cmd_remove() {
     if [[ $# -eq 0 ]]; then
-        print_error "No packages specified"
-        echo "Usage: $PROGRAM_NAME get <package...>"
+        print_error "No package specified"
+        echo "Usage: $PROGRAM_NAME remove <package...>"
         return 1
     fi
 
-    print_info "Downloading packages: $*"
+    for pkg_name in "$@"; do
+        local bin_name=$(echo "$pkg_name" | tr '[:upper:]' '[:lower:]')
+        local manifest="$INSTALLED/$bin_name.txt"
+
+        if [[ ! -f "$manifest" ]]; then
+            print_error "Package '$pkg_name' is not installed"
+            continue
+        fi
+
+        print_info "Removing $pkg_name..."
+
+        # Remove each file listed in the manifest
+        while IFS= read -r file; do
+            if [[ -e "$file" ]]; then
+                rm -rf "$file"
+            fi
+        done < "$manifest"
+
+        # Remove the manifest
+        rm -f "$manifest"
+
+        print_success "Successfully removed $pkg_name"
+    done
+}
+
+# Get command (download and install)
+cmd_get() {
+    if [[ $# -eq 0 ]]; then
+        print_error "No packages specified"
+        echo "Usage: $PROGRAM_NAME get <url...>"
+        return 1
+    fi
 
     for package in "$@"; do
         print_info "Downloading $package..."
-        if apt-get download "$package"; then
-            print_success "Successfully downloaded $package"
+
+        # Get the filename from the URL
+        local filename=$(basename "$package")
+
+        if wget -q "$package" -O "$filename"; then
+            print_success "Successfully downloaded $filename"
+            # Automatically install the downloaded .keg file
+            cmd_install "$filename"
         else
             print_error "Failed to download $package"
         fi
@@ -122,6 +254,9 @@ main() {
     case "$command" in
         install)
             cmd_install "$@"
+            ;;
+        remove)
+            cmd_remove "$@"
             ;;
         get)
             cmd_get "$@"
