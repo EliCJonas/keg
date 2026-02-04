@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.1.0"
+VERSION="1.0.0"
 PROGRAM_NAME="keg"
 
 # Check for root/sudo access
