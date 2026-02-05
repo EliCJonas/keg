@@ -1,7 +1,7 @@
 #!/bin/bash
 
-VERSION="1.0.0"
-PROGRAM_NAME="keg"
+VERSION="1.2.1"
+PROGRAM_NAME="auro"
 
 # Check for root/sudo access
 if [[ $EUID -ne 0 ]]; then
@@ -26,6 +26,8 @@ DATA="$REAL_HOME/.keg/data"
 BIN="$REAL_HOME/.keg/bin"
 LIB="/usr/local/lib/"
 INSTALLED="$REAL_HOME/.keg/installed"
+DESKTOP="$REAL_HOME/.local/share/applications"
+ICONS="$REAL_HOME/.local/share/icons/hicolor/256x256/apps"
 
 # Print colored messages
 print_error() {
@@ -46,27 +48,23 @@ print_warning() {
 
 # Help command
 cmd_help() {
-    echo -e "${YELLOW}"
+    echo -e "${GREEN}"
     cat << 'EOF'
-                 .~.
-                /   \
-               |     |
-               |     |
-               |     |
-              /|=====|\
-             / |     | \
-            /  | KEG |  \
-           |   |=====|   |
-           |   |     |   |
-           |   | ~~~ |   |
-           |   | ~~~ |   |
-           |   |     |   |
-            \  |=====|  /
-             \_|_____|_/
+         *  .  *       .        *    .   *
+      .    *      _____     *        .
+   *    .      /|      |\       .   *   .
+     .    *   / | * .  | \   *    .
+    *   .  * /  |  *   |  \    *    .   *
+   . *     /    |.   * |   \      *   .
+     .  *  ~~~~~| AURO |~~~~~   .    *
+   *    .      *|   *  |  .   *   .
+      .   *  .  |*   . | *   .   *    .
+    *   .    *  | .  * |   .   *
+       *   .    |  *   |  .   *   .  *
 EOF
     echo -e "${NC}"
-    echo -e "                ${GREEN}keg v${VERSION}${NC}"
-    echo -e "          ${BLUE}A simple package manager${NC}"
+    echo -e "              ${GREEN}auro v${VERSION}${NC}"
+    echo -e "        ${BLUE}A simple package manager${NC}"
     echo ""
     echo -e "${YELLOW}Usage:${NC} $PROGRAM_NAME <command> [options] [packages...]"
     echo ""
@@ -177,6 +175,33 @@ cmd_install() {
             echo "$BIN/$bin_name" >> "$manifest"
         fi
 
+        # Move .desktop files to applications directory
+        if [[ -d "$pkg_root/desktop" ]]; then
+            mkdir -p "$DESKTOP"
+            for file in "$pkg_root/desktop/"*; do
+                if [[ -e "$file" ]]; then
+                    local basename=$(basename "$file")
+                    cp "$file" "$DESKTOP/"
+                    echo "$DESKTOP/$basename" >> "$manifest"
+                fi
+            done
+        fi
+
+        # Symlink icons to hicolor theme
+        if [[ -d "$pkg_root/icons" ]]; then
+            mkdir -p "$ICONS"
+            for file in "$pkg_root/icons/"*.png; do
+                if [[ -e "$file" ]]; then
+                    local basename=$(basename "$file")
+                    cp "$file" "$DATA/"
+                    ln -sf "$DATA/$basename" "$ICONS/$basename"
+                    echo "$DATA/$basename" >> "$manifest"
+                    echo "$ICONS/$basename" >> "$manifest"
+                fi
+            done
+            gtk-update-icon-cache "$REAL_HOME/.local/share/icons/hicolor" 2>/dev/null
+        fi
+
         # Cleanup temp directory
         rm -rf "$temp_dir"
 
@@ -205,10 +230,15 @@ cmd_remove() {
 
         # Remove each file listed in the manifest
         while IFS= read -r file; do
-            if [[ -e "$file" ]]; then
+            if [[ -e "$file" || -L "$file" ]]; then
                 rm -rf "$file"
             fi
         done < "$manifest"
+
+        # Update icon cache if icons were removed
+        if grep -q "$ICONS" "$manifest" 2>/dev/null; then
+            gtk-update-icon-cache "$REAL_HOME/.local/share/icons/hicolor" 2>/dev/null
+        fi
 
         # Remove the manifest
         rm -f "$manifest"
