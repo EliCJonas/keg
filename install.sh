@@ -20,7 +20,7 @@ mkdir -p "$REAL_HOME/.keg/data"
 mkdir -p "$REAL_HOME/.keg/installed"
 
 # Copy auro script to bin directory
-cp "$(dirname "$0")/keg" "$REAL_HOME/.keg/bin/auro"
+cp "$(dirname "$0")/auro" "$REAL_HOME/.keg/bin/auro"
 
 # Make auro executable
 chmod +x "$REAL_HOME/.keg/bin/auro"
