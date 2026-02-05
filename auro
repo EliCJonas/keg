@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="1.2.1"
+VERSION="1.3.0"
 PROGRAM_NAME="auro"
 
 # Check for root/sudo access
@@ -72,6 +72,7 @@ EOF
     echo -e "  ${GREEN}install${NC} <file.keg...>  Install one or more .keg packages"
     echo -e "  ${GREEN}remove${NC} <package...>    Remove installed packages"
     echo -e "  ${GREEN}get${NC} <url...>           Download and install from URL"
+    echo -e "  ${GREEN}list${NC}                   List installed packages"
     echo -e "  ${GREEN}help${NC}                   Show this help message"
     echo ""
     echo -e "${YELLOW}Examples:${NC}"
@@ -247,6 +248,27 @@ cmd_remove() {
     done
 }
 
+# List command
+cmd_list() {
+    if [[ ! -d "$INSTALLED" ]]; then
+        print_info "No packages installed"
+        return 0
+    fi
+
+    local packages=("$INSTALLED"/*.txt)
+
+    if [[ ! -e "${packages[0]}" ]]; then
+        print_info "No packages installed"
+        return 0
+    fi
+
+    echo -e "${YELLOW}Installed packages:${NC}"
+    for manifest in "${packages[@]}"; do
+        local pkg_name=$(basename "$manifest" .txt)
+        echo -e "  ${GREEN}$pkg_name${NC}"
+    done
+}
+
 # Get command (download and install)
 cmd_get() {
     if [[ $# -eq 0 ]]; then
@@ -290,6 +312,9 @@ main() {
             ;;
         get)
             cmd_get "$@"
+            ;;
+        list)
+            cmd_list
             ;;
         help|--help|-h)
             cmd_help
