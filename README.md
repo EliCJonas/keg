@@ -10,6 +10,8 @@ The .keg format contains the following:
  - Binaries
 
 An example keg for the app Gophie:
+
+```
 .
 ├── data
 ├── desktop
@@ -19,4 +21,6 @@ An example keg for the app Gophie:
 │   └── gophie.png
 ├── keg-name.txt
 └── lib
+```
 
+To update, simply run install.sh again.
