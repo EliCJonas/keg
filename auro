@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="1.4.0"
+VERSION="1.4.2"
 PROGRAM_NAME="auro"
 
 # Check for root/sudo access
@@ -182,6 +182,8 @@ cmd_install() {
             mkdir -p "$REAL_HOME/.local/bin"
             ln -sf "$BIN/$basename" "$REAL_HOME/.local/bin/$basename"
             echo "$REAL_HOME/.local/bin/$basename" >> "$manifest"
+            ln -sf "$BIN/$basename" "/usr/local/bin/$basename"
+            echo "/usr/local/bin/$basename" >> "$manifest"
         done
 
         # Move .desktop files to applications directory
